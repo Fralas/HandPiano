@@ -14,8 +14,41 @@ def get_camera_indexes(max_cameras=5):
             cap.release()
     return available_cameras
 
-def open_camera_with_drawing(camera_index):
-    """Open the selected camera and enable drawing mode."""
+def draw_piano_on_canvas(canvas, min_x, min_y, max_x, max_y):
+    """Draw a piano on the given canvas inside the bounding box."""
+    h, w, _ = canvas.shape
+    piano_width = max_x - min_x
+    piano_height = max_y - min_y
+
+    # Number of white keys (adjust based on the width of the bounding box)
+    num_keys = piano_width // 40  # 40 pixels per key is a basic estimation
+    key_width = piano_width // num_keys
+    key_height = piano_height
+
+    # Draw the white keys (rectangles)
+    for i in range(num_keys):
+        x_start = min_x + i * key_width
+        cv2.rectangle(canvas, (x_start, min_y), (x_start + key_width, min_y + key_height), (255, 255, 255), -1)
+        cv2.rectangle(canvas, (x_start, min_y), (x_start + key_width, min_y + key_height), (0, 0, 0), 2)  # Outline of the key
+
+        # Add key labels (C, D, E, F, G, A, B...)
+        note = "CDEFGAB"[i % 7]  # Cycle through notes
+        cv2.putText(canvas, note, (x_start + 10, min_y + key_height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+    # Draw the black keys (smaller rectangles)
+    for i in range(1, num_keys - 1):
+        if i % 7 == 2 or i % 7 == 6:  # Skip black key positions (between B-C and E-F)
+            continue
+        # Calculate position of black key (centered between two white keys)
+        x_start = min_x + i * key_width + key_width // 2 - key_width // 4  # Adjust for center
+        black_key_width = key_width // 2
+        black_key_height = int(key_height // 1.5)
+
+        # Draw the black key as a rectangle
+        cv2.rectangle(canvas, (x_start, min_y), (x_start + black_key_width, min_y + black_key_height), (0, 0, 0), -1)
+
+def open_camera_with_piano(camera_index):
+    """Open the selected camera and enable piano drawing and interaction."""
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
         print(f"Error: Could not open camera {camera_index}")
@@ -30,6 +63,7 @@ def open_camera_with_drawing(camera_index):
     prev_x, prev_y = None, None
     drawing_mode = False  # Initially, don't start drawing
     drawn_points = []  # To track the points where the user draws
+    piano_drawn = False  # Track whether the piano is drawn
 
     print("Press 'd' to toggle drawing mode, 'c' to clear the canvas, and 'q' to quit.")
 
@@ -70,7 +104,7 @@ def open_camera_with_drawing(camera_index):
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
         # Once drawing mode is off, finalize and resize the drawing
-        if not drawing_mode and drawn_points:
+        if not drawing_mode and drawn_points and not piano_drawn:
             # Calculate bounding box (min/max of x and y coordinates)
             min_x = min([p[0] for p in drawn_points])
             max_x = max([p[0] for p in drawn_points])
@@ -82,14 +116,18 @@ def open_camera_with_drawing(camera_index):
             cv2.rectangle(canvas, (min_x, min_y), (max_x, max_y), (255, 255, 255), -1)
             cv2.rectangle(frame, (min_x, min_y), (max_x, max_y), (0, 0, 255), 3)
 
-            # Finalize drawing shape (bounding box is drawn)
+            # Draw the piano inside the bounding box
+            draw_piano_on_canvas(canvas, min_x, min_y, max_x, max_y)
+
+            # Finalize drawing the piano shape
+            piano_drawn = True
             drawn_points.clear()  # Clear drawn points after finalizing
 
         # Overlay the canvas on the frame
         overlay = cv2.addWeighted(frame, 0.5, canvas, 0.5, 0)
 
         # Display the frame
-        cv2.imshow(f"Drawing Mode - Camera {camera_index}", overlay)
+        cv2.imshow(f"Virtual Piano - Camera {camera_index}", overlay)
 
         # Keyboard controls
         key = cv2.waitKey(1) & 0xFF
@@ -98,6 +136,7 @@ def open_camera_with_drawing(camera_index):
         elif key == ord('c'):  # Clear the canvas
             canvas = np.zeros_like(frame)
             drawing_mode = False
+            piano_drawn = False
             drawn_points.clear()
             print("Canvas cleared.")
         elif key == ord('d'):  # Toggle drawing mode
@@ -106,7 +145,7 @@ def open_camera_with_drawing(camera_index):
                 print("Drawing mode: On")
             else:
                 drawing_mode = False
-                print("Drawing mode: Off\nShape finalized.")
+                print("Drawing mode: Off\nPiano finalized.")
 
     cap.release()
     cv2.destroyAllWindows()
@@ -117,7 +156,7 @@ def start_camera():
     selected_camera = dropdown_var.get()
     if selected_camera:
         camera_index = int(selected_camera.split()[-1])
-        open_camera_with_drawing(camera_index)
+        open_camera_with_piano(camera_index)
 
 # GUI Setup
 root = tk.Tk()
