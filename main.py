@@ -15,7 +15,7 @@ def get_camera_indexes(max_cameras=5):
     return available_cameras
 
 def open_camera_with_drawing(camera_index):
-    """Open the selected camera and allow drawing on a canvas."""
+    """Open the selected camera and enable drawing mode."""
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
         print(f"Error: Could not open camera {camera_index}")
@@ -26,10 +26,10 @@ def open_camera_with_drawing(camera_index):
     hands = mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.8)
     mp_drawing = mp.solutions.drawing_utils
 
-    # Variables to track drawing state and previous finger position
     canvas = None
     prev_x, prev_y = None, None
-    drawing_mode = False  # Start with drawing mode off
+    drawing_mode = False  # Initially, don't start drawing
+    drawn_points = []  # To track the points where the user draws
 
     print("Press 'd' to toggle drawing mode, 'c' to clear the canvas, and 'q' to quit.")
 
@@ -43,14 +43,13 @@ def open_camera_with_drawing(camera_index):
         frame = cv2.flip(frame, 1)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Dynamically initialize the canvas to match the frame size
+        # Initialize the canvas if it's not created yet
         if canvas is None:
             canvas = np.zeros_like(frame)
 
         # Process the frame for hand landmarks
         results = hands.process(rgb_frame)
 
-        # If hand landmarks are detected
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 # Extract index finger tip coordinates
@@ -58,19 +57,39 @@ def open_camera_with_drawing(camera_index):
                 h, w, _ = frame.shape
                 x, y = int(index_finger_tip.x * w), int(index_finger_tip.y * h)
 
-                # Draw mode: Only draw lines if drawing_mode is True
-                if drawing_mode and prev_x is not None and prev_y is not None:
-                    cv2.line(canvas, (prev_x, prev_y), (x, y), (255, 255, 255), 5)
-                prev_x, prev_y = x, y
+                # Drawing mode: draw the shape with the finger
+                if drawing_mode:
+                    if prev_x is not None and prev_y is not None:
+                        cv2.line(canvas, (prev_x, prev_y), (x, y), (255, 255, 255), 5)
+                    prev_x, prev_y = x, y
+
+                    # Track drawn points for resizing
+                    drawn_points.append((x, y))
 
                 # Draw hand landmarks on the frame
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
+        # Once drawing mode is off, finalize and resize the drawing
+        if not drawing_mode and drawn_points:
+            # Calculate bounding box (min/max of x and y coordinates)
+            min_x = min([p[0] for p in drawn_points])
+            max_x = max([p[0] for p in drawn_points])
+            min_y = min([p[1] for p in drawn_points])
+            max_y = max([p[1] for p in drawn_points])
+
+            # Resize the drawn area into a rectangle
+            canvas = np.zeros_like(frame)
+            cv2.rectangle(canvas, (min_x, min_y), (max_x, max_y), (255, 255, 255), -1)
+            cv2.rectangle(frame, (min_x, min_y), (max_x, max_y), (0, 0, 255), 3)
+
+            # Finalize drawing shape (bounding box is drawn)
+            drawn_points.clear()  # Clear drawn points after finalizing
+
         # Overlay the canvas on the frame
         overlay = cv2.addWeighted(frame, 0.5, canvas, 0.5, 0)
 
-        # Display the combined image
-        cv2.imshow(f"Drawing Canvas - Camera {camera_index}", overlay)
+        # Display the frame
+        cv2.imshow(f"Drawing Mode - Camera {camera_index}", overlay)
 
         # Keyboard controls
         key = cv2.waitKey(1) & 0xFF
@@ -78,9 +97,16 @@ def open_camera_with_drawing(camera_index):
             break
         elif key == ord('c'):  # Clear the canvas
             canvas = np.zeros_like(frame)
+            drawing_mode = False
+            drawn_points.clear()
+            print("Canvas cleared.")
         elif key == ord('d'):  # Toggle drawing mode
-            drawing_mode = not drawing_mode
-            print("Drawing mode:", "On" if drawing_mode else "Off")
+            if not drawing_mode:
+                drawing_mode = True
+                print("Drawing mode: On")
+            else:
+                drawing_mode = False
+                print("Drawing mode: Off\nShape finalized.")
 
     cap.release()
     cv2.destroyAllWindows()
