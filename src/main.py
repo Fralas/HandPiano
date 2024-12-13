@@ -6,6 +6,7 @@ from tkinter import ttk
 import os
 from threading import Thread, Lock
 import pygame  # For audio playback
+import time  # For time tracking
 
 # Initialize pygame mixer
 pygame.mixer.init()
@@ -30,6 +31,10 @@ note_lock = Lock()
 
 # Flag to track if a note is being played
 note_playing = False
+
+# Variables for debounce logic
+last_note = None
+last_note_time = 0
 
 # Function to play a note in a separate thread (non-blocking playback)
 def play_note_in_thread(note):
@@ -78,7 +83,7 @@ def detect_note_from_position(x, min_x, max_x, num_keys=7):
 
 # Function to handle camera and piano logic
 def open_camera_with_piano(camera_index, voice_folder):
-    global notes, note_playing
+    global notes, note_playing, last_note, last_note_time
     notes = load_notes(voice_folder)
 
     cap = cv2.VideoCapture(camera_index)
@@ -95,6 +100,10 @@ def open_camera_with_piano(camera_index, voice_folder):
     drawn_points = []
     piano_drawn = False
     min_x, max_x, min_y, max_y = 0, 0, 0, 0
+
+    # Initialize debounce variables
+    last_note = None
+    last_note_time = 0
 
     print("Press 'd' to toggle drawing mode, 'c' to clear the canvas, and 'q' to quit.")
 
@@ -126,10 +135,16 @@ def open_camera_with_piano(camera_index, voice_folder):
                 elif piano_drawn and abs(x - thumb_x) < 20 and abs(y - thumb_y) < 20:
                     detected_note = detect_note_from_position(x, min_x, max_x, num_keys=7)
 
-                    # Play the note in a separate thread to avoid blocking
-                    if not note_playing:
-                        play_thread = Thread(target=play_note_in_thread, args=(detected_note,))
-                        play_thread.start()
+                    # Debounce logic to prevent note spamming
+                    if detected_note:
+                        current_time = time.time()
+                        if detected_note != last_note or (current_time - last_note_time) > 0.5:
+                            last_note = detected_note
+                            last_note_time = current_time
+
+                            # Play the note in a separate thread to avoid blocking
+                            play_thread = Thread(target=play_note_in_thread, args=(detected_note,))
+                            play_thread.start()
 
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
@@ -179,7 +194,7 @@ camera_dropdown.pack(pady=10)
 # Dropdown menu to select voice folder
 voice_dropdown_var = tk.StringVar(root)
 voice_dropdown_var.set("piano_voice")
-voice_options = ["piano_voice", "emma_voice"]
+voice_options = ["piano_voice", "emma_voice", "drumkit_voice"]
 voice_dropdown = ttk.Combobox(root, textvariable=voice_dropdown_var, values=voice_options)
 voice_dropdown.pack(pady=10)
 
